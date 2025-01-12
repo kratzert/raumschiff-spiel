@@ -31,31 +31,23 @@ void setup() {
 
 void loop() {
 
-  static int counter = 0;
-  static int recencyCounter = 0;
-
-  int val = analogRead(RESETPIN);
-  if (val == 1023) {
+  if (analogRead(RESETPIN) == 1023) {
     resetGame();
     isUpper = true;
   }
 
-  checkForCollision();
-  if (isDead) {
-    displayEndScreen();
-  } else {
+  static unsigned long lastUpdateTime = 0; 
+  if (millis() - lastUpdateTime >= 40) {
+    lastUpdateTime = millis();
 
-    if (counter >= 10) {
-      updateUniverse(recencyCounter);
-      counter = 0;
+    checkForCollision();
+    if (isDead) {
+      displayEndScreen();
+    } else {
+      updateUniverse();
+      navigateSpaceship();
+      displayRows();  
     }
-
-    navigateSpaceship();
-    counter++;
-
-    displayRows();    
-    delay(40);
-
   }
 }
 
@@ -88,19 +80,28 @@ void navigateSpaceship() {
   }
 }
 
-void updateUniverse(int &recencyCounter) {
-  if (recencyCounter == 0 && random(0, COMET_APPEAR_CHANCE) == 0) { 
-    // Only create a comet if recencyCounter is 0 and random condition met
-    if (random(0, 2) == 0) { // 50/50 chance for upper or lower row
-      advanceState(comet, emptyRow); 
-    } else {
-      advanceState(emptyRow, comet);
-    }
-    recencyCounter = COMET_RECENCY_DELAY;
+void updateUniverse() {
+  static int recencyCounter = 0;
+  static int noUpdateCounter = 0;
+  if (noUpdateCounter < 10) {
+    noUpdateCounter++;
   } else {
-    advanceState(emptyRow, emptyRow);
-    recencyCounter = max(recencyCounter - 1, 0); 
+    if (recencyCounter == 0 && random(0, COMET_APPEAR_CHANCE) == 0) { 
+      // Only create a comet if recencyCounter is 0 and random condition met
+      if (random(0, 2) == 0) { // 50/50 chance for upper or lower row
+        advanceState(comet, emptyRow); 
+      } else {
+        advanceState(emptyRow, comet);
+      }
+      recencyCounter = COMET_RECENCY_DELAY;
+    } else {
+        advanceState(emptyRow, emptyRow);
+        recencyCounter = max(recencyCounter - 1, 0); 
+    }
+    noUpdateCounter = 0;
   }
+
+
 }
 
 void advanceRow(char *row, char *next) {
@@ -142,12 +143,12 @@ void displayEndScreen() {
 void resetGame() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(RESTART_MESSAGE);
+  lcd.print(RESTART_MESSAGE);  // Show RESTART_MESSAGE for one second.
   delay(1000);
   strcpy(upperRow, emptyRow);
   strcpy(bottomRow, emptyRow);
   strcpy(previousUpperRow, emptyRow);
   strcpy(previousBottomRow, emptyRow);
   isDead = false;
-  lcd.clear();
+  lcd.clear(); // Clear again to remove RESTART_MESSAGE from display.
 }
