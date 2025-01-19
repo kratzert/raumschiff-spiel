@@ -4,7 +4,7 @@
 #define RESETPIN A2
 #define MOVEUP A1
 #define MOVEDOWN A0
-#define ROW_LENGTH 16
+#define ROW_LENGTH 15
 #define NOISE_PIN 13
 #define COMET_APPEAR_CHANCE 3
 #define COMET_RECENCY_DELAY 2
@@ -23,10 +23,15 @@ char comet[] = "*";
 char spaceShip[] = ">";
 bool isDead = false;
 static bool isUpper = true;
+int level = 1;
+int passedComets = 0;
 
 void setup() {
   lcd.begin(16, 2);
   randomSeed(analogRead(NOISE_PIN));  // Set seed to random noise from empty pin
+  pinMode(RESETPIN, INPUT); // Set the pin mode for RESETPIN
+  pinMode(MOVEUP, INPUT);   // Set the pin mode for MOVEUP
+  pinMode(MOVEDOWN, INPUT); // Set the pin mode for MOVEDOWN
 }
 
 void loop() {
@@ -37,7 +42,7 @@ void loop() {
   }
 
   static unsigned long lastUpdateTime = 0; 
-  if (millis() - lastUpdateTime >= 40) {
+  if (millis() - lastUpdateTime >= (42 - 2*level)) {
     lastUpdateTime = millis();
 
     checkForCollision();
@@ -59,6 +64,13 @@ void checkForCollision() {
 }
 
 void advanceState(char *nextUpper, char *nextBottom) {
+  if (upperRow[0] == comet[0] || bottomRow[0] == comet[0]) {
+    passedComets++;
+    if (passedComets == 10) {
+      level++;
+      passedComets = 0;
+    }
+  }
   advanceRow(upperRow, nextUpper);
   advanceRow(bottomRow, nextBottom);
 }
@@ -89,13 +101,13 @@ void updateUniverse() {
     if (recencyCounter == 0 && random(0, COMET_APPEAR_CHANCE) == 0) { 
       // Only create a comet if recencyCounter is 0 and random condition met
       if (random(0, 2) == 0) { // 50/50 chance for upper or lower row
-        advanceState(comet, emptyRow); 
+        advanceState(comet, emptySpace); 
       } else {
-        advanceState(emptyRow, comet);
+        advanceState(emptySpace, comet);
       }
       recencyCounter = COMET_RECENCY_DELAY;
     } else {
-        advanceState(emptyRow, emptyRow);
+        advanceState(emptySpace, emptySpace);
         recencyCounter = max(recencyCounter - 1, 0); 
     }
     noUpdateCounter = 0;
@@ -123,6 +135,8 @@ void displayRows() {
       previousUpperRow[i] = upperRow[i];
     }
   }
+  lcd.setCursor(15, 0);
+  lcd.print(level);
 
   for (int i = 0; i < ROW_LENGTH; i++) {
     if (bottomRow[i] != previousBottomRow[i]) {
@@ -131,6 +145,8 @@ void displayRows() {
       previousBottomRow[i] = bottomRow[i];
     }
   }
+  lcd.setCursor(15, 1);
+  lcd.print(passedComets);
 }
 
 void displayEndScreen() {
@@ -150,5 +166,7 @@ void resetGame() {
   strcpy(previousUpperRow, emptyRow);
   strcpy(previousBottomRow, emptyRow);
   isDead = false;
+  level = 1;
+  passedComets = 0;
   lcd.clear(); // Clear again to remove RESTART_MESSAGE from display.
 }
