@@ -4,7 +4,7 @@ const int ROW_LENGTH = 15;
 const int COMET_APPEAR_CHANCE = 3;
 const int COMET_RECENCY_DELAY = 2;
 const int BUTTON_PRESSED_THRESHOLD = 1000; // Adjust if needed
-const int MAX_UPDATE_INTERVAL = 42;
+const int MAX_UPDATE_INTERVAL = 32;
 const int LEVEL_MULTIPLIER = 2;
 const int LEVEL_UP_THRESHOLD = 10;
 const int NO_UPDATE_LIMIT = 10;
@@ -116,6 +116,9 @@ void advanceState(char nextUpper, char nextBottom) {
         if (passedComets >= LEVEL_UP_THRESHOLD) {
             level++;
             passedComets = 0;
+        }
+        if (level == 10) {
+          level = 1;
         }
     }
     updateRow(upperRow, nextUpper);
