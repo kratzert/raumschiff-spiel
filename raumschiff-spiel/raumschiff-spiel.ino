@@ -1,172 +1,210 @@
 #include <LiquidCrystal.h>
-#include <string.h>
 
-#define RESETPIN A2
-#define MOVEUP A1
-#define MOVEDOWN A0
-#define ROW_LENGTH 15
-#define NOISE_PIN 13
-#define COMET_APPEAR_CHANCE 3
-#define COMET_RECENCY_DELAY 2
-#define END_MESSAGE "Try again!"
-#define RESTART_MESSAGE "Starting again"
+const int ROW_LENGTH = 15;
+const int COMET_APPEAR_CHANCE = 3;
+const int COMET_RECENCY_DELAY = 2;
+const int BUTTON_PRESSED_THRESHOLD = 1000; // Adjust if needed
+const int MAX_UPDATE_INTERVAL = 42;
+const int LEVEL_MULTIPLIER = 2;
+const int LEVEL_UP_THRESHOLD = 10;
+const int NO_UPDATE_LIMIT = 10;
+const char* END_MESSAGE = "Try again!";
+const char* RESTART_MESSAGE = "Starting again";
 
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+enum PinAssignments {
+    RESETPIN = A2,
+    MOVEUP = A1,
+    MOVEDOWN = A0,
+    NOISE_PIN = 13,
+    LCD_RS = 12,
+    LCD_ENABLE = 11,
+    LCD_D4 = 5,
+    LCD_D5 = 4,
+    LCD_D6 = 3,
+    LCD_D7 = 2
+};
 
-char upperRow[ROW_LENGTH + 1] = "                ";
-char previousUpperRow[ROW_LENGTH + 1] = "                ";
-char bottomRow[ROW_LENGTH + 1] = "                ";
-char previousBottomRow[ROW_LENGTH + 1] = "                ";
-char emptyRow[ROW_LENGTH + 1] = "                ";
-char emptySpace[] = " ";
-char comet[] = "*";
-char spaceShip[] = ">";
+LiquidCrystal lcd(LCD_RS, LCD_ENABLE, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+
+struct Row {
+    char data[ROW_LENGTH + 1];
+
+    Row() { clear(); }
+
+    void clear() {
+        memset(data, ' ', ROW_LENGTH);
+        data[ROW_LENGTH] = '\0';
+    }
+
+    void shiftLeft() {
+        memmove(data, data + 1, ROW_LENGTH - 1);
+    }
+
+    void add(char c) {
+        data[ROW_LENGTH - 1] = c;
+    }
+
+    char get(int index) const {
+        return data[index];
+    }
+
+    void set(int index, char value) {
+        data[index] = value;
+    }
+};
+
+Row upperRow;
+Row previousUpperRow;
+Row bottomRow;
+Row previousBottomRow;
+const char emptySpace = ' ';
+const char comet = '*';
+const char spaceShip = '>';
 bool isDead = false;
-static bool isUpper = true;
+bool isUpper = true;
 int level = 1;
 int passedComets = 0;
+int noUpdateCounter = 0;
 
 void setup() {
-  lcd.begin(16, 2);
-  randomSeed(analogRead(NOISE_PIN));  // Set seed to random noise from empty pin
-  pinMode(RESETPIN, INPUT); // Set the pin mode for RESETPIN
-  pinMode(MOVEUP, INPUT);   // Set the pin mode for MOVEUP
-  pinMode(MOVEDOWN, INPUT); // Set the pin mode for MOVEDOWN
+    initializeGame();
 }
 
 void loop() {
-
-  if (analogRead(RESETPIN) == 1023) {
-    resetGame();
-    isUpper = true;
-  }
-
-  static unsigned long lastUpdateTime = 0; 
-  if (millis() - lastUpdateTime >= (42 - 2*level)) {
-    lastUpdateTime = millis();
-
-    checkForCollision();
-    if (isDead) {
-      displayEndScreen();
-    } else {
-      updateUniverse();
-      navigateSpaceship();
-      displayRows();  
+    if (analogRead(RESETPIN) > BUTTON_PRESSED_THRESHOLD) {
+        resetGame();
+        isUpper = true;
     }
-  }
+
+    static unsigned long lastUpdateTime = 0;
+    if (millis() - lastUpdateTime >= (MAX_UPDATE_INTERVAL - LEVEL_MULTIPLIER * level)) {
+        lastUpdateTime = millis();
+
+        if (noUpdateCounter == NO_UPDATE_LIMIT){
+          checkForCollision();
+        }
+
+        if (isDead) {
+            displayEndScreen();
+        } else {
+            updateUniverse();
+            navigateSpaceship();
+            displayRows(upperRow, previousUpperRow, bottomRow, previousBottomRow);
+        }
+    }
+}
+
+void initializeGame() {
+    lcd.begin(16, 2);
+    randomSeed(analogRead(NOISE_PIN));
+    pinMode(RESETPIN, INPUT);
+    pinMode(MOVEUP, INPUT);
+    pinMode(MOVEDOWN, INPUT);
+    resetGame();
 }
 
 void checkForCollision() {
-  if ((isUpper && upperRow[1] == comet[0]) || 
-      (!isUpper && bottomRow[1] == comet[0])) {
-    isDead = true;
-  }
+    if ((isUpper && upperRow.get(1) == comet) ||
+        (!isUpper && bottomRow.get(1) == comet)) {
+        isDead = true;
+    }
 }
 
-void advanceState(char *nextUpper, char *nextBottom) {
-  if (upperRow[0] == comet[0] || bottomRow[0] == comet[0]) {
-    passedComets++;
-    if (passedComets == 10) {
-      level++;
-      passedComets = 0;
+void advanceState(char nextUpper, char nextBottom) {
+    if (upperRow.get(0) == comet || bottomRow.get(0) == comet) {
+        passedComets++;
+        if (passedComets >= LEVEL_UP_THRESHOLD) {
+            level++;
+            passedComets = 0;
+        }
     }
-  }
-  advanceRow(upperRow, nextUpper);
-  advanceRow(bottomRow, nextBottom);
+    updateRow(upperRow, nextUpper);
+    updateRow(bottomRow, nextBottom);
 }
 
 void navigateSpaceship() {
-  if (analogRead(MOVEUP) == 1023 && !isUpper) {
-    advanceRow(bottomRow, emptySpace);
-    isUpper = true;
-  } 
-  if (analogRead(MOVEDOWN) == 1023 && isUpper) {
-    advanceRow(upperRow, emptySpace);
-    isUpper = false;
-  }
-  // Now add the spaceship to the correct row
-  if (isUpper) {
-    addSpaceShip(upperRow);
-  } else {
-    addSpaceShip(bottomRow);
-  }
+    if (analogRead(MOVEUP) > BUTTON_PRESSED_THRESHOLD && !isUpper) {
+        updateRow(bottomRow, emptySpace);
+        isUpper = true;
+    }
+    if (analogRead(MOVEDOWN) > BUTTON_PRESSED_THRESHOLD && isUpper) {
+        updateRow(upperRow, emptySpace);
+        isUpper = false;
+    }
+
+    if (isUpper) {
+        upperRow.set(0, spaceShip);
+    } else {
+        bottomRow.set(0, spaceShip);
+    }
 }
 
 void updateUniverse() {
-  static int recencyCounter = 0;
-  static int noUpdateCounter = 0;
-  if (noUpdateCounter < 10) {
-    noUpdateCounter++;
-  } else {
-    if (recencyCounter == 0 && random(0, COMET_APPEAR_CHANCE) == 0) { 
-      // Only create a comet if recencyCounter is 0 and random condition met
-      if (random(0, 2) == 0) { // 50/50 chance for upper or lower row
-        advanceState(comet, emptySpace); 
-      } else {
-        advanceState(emptySpace, comet);
-      }
-      recencyCounter = COMET_RECENCY_DELAY;
+    static int recencyCounter = 0;
+
+    if (noUpdateCounter < NO_UPDATE_LIMIT) {
+        noUpdateCounter++;
     } else {
-        advanceState(emptySpace, emptySpace);
-        recencyCounter = max(recencyCounter - 1, 0); 
+        if (recencyCounter == 0 && random(0, COMET_APPEAR_CHANCE) == 0) {
+            if (random(0, 2) == 0) {
+                advanceState(comet, emptySpace);
+            } else {
+                advanceState(emptySpace, comet);
+            }
+            recencyCounter = COMET_RECENCY_DELAY;
+        } else {
+            advanceState(emptySpace, emptySpace);
+            recencyCounter = max(recencyCounter - 1, 0);
+        }
+        noUpdateCounter = 0;
     }
-    noUpdateCounter = 0;
-  }
-
-
 }
 
-void advanceRow(char *row, char *next) {
-  memmove(row, row + 1, ROW_LENGTH - 1); // Shift characters to the left
-  row[ROW_LENGTH - 1] = next[0]; // Add the new character
-  row[ROW_LENGTH] = '\0'; // Ensure null termination
+void updateRow(Row& row, char nextChar) {
+    row.shiftLeft();
+    row.add(nextChar);
 }
 
-void addSpaceShip(char *row) {
-  row[0] = spaceShip[0]; // Add the spaceship
-  row[ROW_LENGTH] = '\0'; // Ensure null termination
-}
-
-void displayRows() {
-  for (int i = 0; i < ROW_LENGTH; i++) {
-    if (upperRow[i] != previousUpperRow[i]) {
-      lcd.setCursor(i, 0);
-      lcd.print(upperRow[i]);
-      previousUpperRow[i] = upperRow[i];
+void displayRows(Row& upperRow, Row& previousUpperRow, Row& bottomRow, Row& previousBottomRow) {
+    for (int i = 0; i < ROW_LENGTH; i++) {
+        if (upperRow.get(i) != previousUpperRow.get(i)) {
+            lcd.setCursor(i, 0);
+            lcd.print(upperRow.get(i));
+            previousUpperRow.set(i, upperRow.get(i));
+        }
     }
-  }
-  lcd.setCursor(15, 0);
-  lcd.print(level);
+    lcd.setCursor(15, 0);
+    lcd.print(level);
 
-  for (int i = 0; i < ROW_LENGTH; i++) {
-    if (bottomRow[i] != previousBottomRow[i]) {
-      lcd.setCursor(i, 1);
-      lcd.print(bottomRow[i]);
-      previousBottomRow[i] = bottomRow[i];
+    for (int i = 0; i < ROW_LENGTH; i++) {
+        if (bottomRow.get(i) != previousBottomRow.get(i)) {
+            lcd.setCursor(i, 1);
+            lcd.print(bottomRow.get(i));
+            previousBottomRow.set(i, bottomRow.get(i));
+        }
     }
-  }
-  lcd.setCursor(15, 1);
-  lcd.print(passedComets);
+    lcd.setCursor(15, 1);
+    lcd.print(passedComets);
 }
 
 void displayEndScreen() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(END_MESSAGE);
-  delay(1000);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(END_MESSAGE);
+    delay(1000);
 }
 
 void resetGame() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(RESTART_MESSAGE);  // Show RESTART_MESSAGE for one second.
-  delay(1000);
-  strcpy(upperRow, emptyRow);
-  strcpy(bottomRow, emptyRow);
-  strcpy(previousUpperRow, emptyRow);
-  strcpy(previousBottomRow, emptyRow);
-  isDead = false;
-  level = 1;
-  passedComets = 0;
-  lcd.clear(); // Clear again to remove RESTART_MESSAGE from display.
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(RESTART_MESSAGE);
+    delay(1000);
+    upperRow.clear();
+    bottomRow.clear();
+    previousUpperRow.clear();
+    previousBottomRow.clear();
+    isDead = false;
+    level = 1;
+    passedComets = 0;
+    lcd.clear();
 }
